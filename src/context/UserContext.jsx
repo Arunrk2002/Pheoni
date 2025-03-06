@@ -6,12 +6,12 @@ export const datacontext = createContext();
 
 function UserContext({ children }) {
     const [speaking, setSpeaking] = useState(false);
-    const [recogtext, setrecogtext] = useState("listening...");
+    const [recogtext, setrecogtext] = useState("Listening...");
     const [response, setresponse] = useState(false);
-    const [qaData, setQaData] = useState([]);  // Store combined data
+    const [qaData, setQaData] = useState([]);  // Stores combined data (JSON + CSV)
 
     useEffect(() => {
-        // Fetch CSV file from the public folder
+        // Fetch CSV file and merge with JSON data
         fetch('/dialogs_expanded.csv')
             .then(response => response.text())
             .then(csvText => {
@@ -27,21 +27,75 @@ function UserContext({ children }) {
     }, []);
 
     function speak(text) {
+        if (!text || typeof text !== "string") return;
+
+        // Stop any ongoing speech
+        window.speechSynthesis.cancel();
+
         const ts = new SpeechSynthesisUtterance(text);
         ts.volume = 1;
         ts.rate = 1;
-        ts.pitch = 2;
+        ts.pitch = 1.2;
         ts.lang = "en-US";
+
+        setSpeaking(true);
+
+        ts.onend = () => {
+            setSpeaking(false);
+        };
+
         window.speechSynthesis.speak(ts);
     }
 
+    
+
     function air(prompt) {
-        const match = qaData.find(qa => qa.question && prompt.includes(qa.question.toLowerCase()));
-        const responseText = match ? match.answer : "Sorry, I don't have an answer for that.";
-        setrecogtext(responseText);
-        speak(responseText);
-        setresponse(true);
-        setTimeout(() => setSpeaking(false), 5000);
+        setrecogtext("Thinking...");
+        setresponse(false);
+        setSpeaking(true);
+
+        // **Search in combined JSON + CSV data**
+        const match = qaData.find(qa => qa.question && prompt.toLowerCase().includes(qa.question.toLowerCase()));
+
+        if (match) {
+            const responseText = match.answer;
+            setrecogtext(responseText);
+            speak(responseText);
+            setresponse(true);
+        } else {
+            // If not found, query Ollama (local AI)
+            const timeout = setTimeout(() => {
+                setrecogtext("Response taking too long. Please try again.");
+                speak("Response taking too long. Please try again.");
+                setresponse(true);
+            }, 10000);
+
+            fetch("http://localhost:5000/ask", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    prompt,
+                    role: "You are a virtual assistant named Pheoni. Your goal is to assist users with their queries in a helpful manner."
+                }),
+            })
+            .then(response => response.json())
+            .then(data => {
+                clearTimeout(timeout);
+                const responseText = data.response || "Sorry, I don't have an answer.";
+                setrecogtext(responseText);
+                speak(responseText);
+                setresponse(true);
+            })
+            .catch(error => {
+                clearTimeout(timeout);
+                console.error("Error:", error);
+                setrecogtext("An error occurred. Please try again.");
+                speak("An error occurred. Please try again.");
+                setresponse(true);
+            });
+        }
     }
 
     function takeCommand(command) {
@@ -49,20 +103,30 @@ function UserContext({ children }) {
             window.open("https://www.youtube.com/", "_blank");
             speak("Opening YouTube");
             setrecogtext("Opening YouTube...");
-            setTimeout(() => setSpeaking(false), 5000);
+            setTimeout(() => setSpeaking(false), 3000);
         } else {
             air(command);
         }
     }
-    
 
+    // Speech Recognition Setup
     const sr = window.SpeechRecognition || window.webkitSpeechRecognition;
     const recog = new sr();
     recog.onresult = (e) => {
         const trans = e.results[e.resultIndex][0].transcript;
         setrecogtext(trans);
-        takeCommand(trans.toLowerCase());  // Correct function call
+        takeCommand(trans.toLowerCase());
     };
+
+    // New function to handle text input
+    function handleTextInput(inputText) {
+        if (inputText.trim() !== "") {
+            setrecogtext(inputText);  // Display user input
+            setresponse(false);        // Reset response state
+            setTimeout(() => takeCommand(inputText), 0);  // Ensure it calls properly
+        }
+    }
+    
     
 
     const value = {
@@ -72,7 +136,8 @@ function UserContext({ children }) {
         recogtext,
         setrecogtext,
         response,
-        setresponse
+        setresponse,
+        handleTextInput,  // Exposing text input function
     };
 
     return (
