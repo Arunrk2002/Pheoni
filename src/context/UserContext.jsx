@@ -1,6 +1,7 @@
 import React, { createContext, useState, useEffect } from 'react';
 import Papa from 'papaparse';
 import jsonData from '../assets/data.json';
+import nlp from 'compromise'; // Import NLP library
 
 export const datacontext = createContext();
 
@@ -47,7 +48,11 @@ function UserContext({ children }) {
         window.speechSynthesis.speak(ts);
     }
 
-    
+    function preprocessText(inputText) {
+        let doc = nlp(inputText);
+        let cleanedText = doc.sentences().out('text'); // Remove unnecessary characters
+        return cleanedText.toLowerCase().trim();
+    }
 
     function air(prompt) {
         setrecogtext("Thinking...");
@@ -77,7 +82,8 @@ function UserContext({ children }) {
                 },
                 body: JSON.stringify({
                     prompt,
-                    role: "You are a virtual assistant named Pheoni. Your goal is to assist users with their queries in a helpful manner."
+                    role: "You are Pheoni, a concise AI assistant. Provide brief, easy-to-understand answers without unnecessary details."
+
                 }),
             })
             .then(response => response.json())
@@ -114,20 +120,20 @@ function UserContext({ children }) {
     const recog = new sr();
     recog.onresult = (e) => {
         const trans = e.results[e.resultIndex][0].transcript;
-        setrecogtext(trans);
-        takeCommand(trans.toLowerCase());
+        let cleanedText = preprocessText(trans);
+        setrecogtext(cleanedText);
+        takeCommand(cleanedText);
     };
 
-    // New function to handle text input
+    // Enhanced text input handler with NLP
     function handleTextInput(inputText) {
         if (inputText.trim() !== "") {
-            setrecogtext(inputText);  // Display user input
-            setresponse(false);        // Reset response state
-            setTimeout(() => takeCommand(inputText), 0);  // Ensure it calls properly
+            let cleanedText = preprocessText(inputText);  // Apply NLP cleaning
+            setrecogtext(cleanedText);  // Display cleaned text
+            setresponse(false);
+            setTimeout(() => takeCommand(cleanedText), 0);
         }
     }
-    
-    
 
     const value = {
         recog,
